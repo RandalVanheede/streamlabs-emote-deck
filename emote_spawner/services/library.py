@@ -1,6 +1,7 @@
 """Image library service — copy, list, delete images."""
 
 import json
+import os
 import re
 import secrets
 from pathlib import Path
@@ -42,10 +43,17 @@ class LibraryError(Exception):
     pass
 
 
+def _write_json(path: Path, data):
+    """Write via a temp file so a crash mid-write can't leave a truncated file (and e.g. a lost spawn token)."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, path)
+
+
 class Library:
     def __init__(self, library_dir: Path):
-        self.library_dir = library_dir
-        self.library_dir.mkdir(parents=True, exist_ok=True)
+        library_dir.mkdir(parents=True, exist_ok=True)
+        self.library_dir = library_dir.resolve()  # resolved, so get_path's containment check survives symlinks/junctions
 
     def _validate_image(self, src: Path) -> tuple[str, int]:
         """Validate an image file. Returns (name, size_kb)."""
@@ -119,15 +127,19 @@ class Library:
         new_stem = new_stem.strip()
         if not re.fullmatch(r"[\w][\w\- ]{0,39}", new_stem):
             raise LibraryError("Names are 1 to 40 letters, digits, spaces, - or _")
+        if new_stem.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}:
+            raise LibraryError(f"'{new_stem}' is a reserved name on Windows")
         new = new_stem + target.suffix
         if new == target.name:
             return new
-        if any(p.name.casefold() == new.casefold() and p != target for p in self.library_dir.iterdir()):
-            raise LibraryError(f"There already is an emote called {new_stem}")
         sound = self.sound_for(target.name)
+        new_sound = new + sound[len(target.name):] if sound else None
+        taken = {p.name.casefold() for p in self.library_dir.iterdir()} - {target.name.casefold(), (sound or "").casefold()}
+        if new.casefold() in taken or (new_sound and new_sound.casefold() in taken):
+            raise LibraryError(f"There already is an emote called {new_stem}")
         target.rename(self.library_dir / new)
         if sound:
-            (self.library_dir / sound).rename(self.library_dir / (new + sound[len(target.name):]))
+            (self.library_dir / sound).rename(self.library_dir / new_sound)
         meta = self._meta()
         if target.name in meta:
             meta[new] = meta.pop(target.name)
@@ -145,7 +157,7 @@ class Library:
             return {}
 
     def _save_meta(self, meta: dict):
-        (self.library_dir / "deck.json").write_text(json.dumps(meta, indent=2))
+        _write_json(self.library_dir / "deck.json", meta)
 
     def settings(self, filename: str) -> dict:
         defaults = {"animation": "none", "volume": 100, "command": default_command(filename)}
@@ -183,7 +195,7 @@ class Library:
             stored = {}
         if not stored.get("token"):
             stored["token"] = secrets.token_urlsafe(16)
-            path.write_text(json.dumps(stored, indent=2))
+            _write_json(path, stored)
         return {**{k: default for k, (default, _, _) in SETTINGS.items()}, **stored}
 
     def update_app_settings(self, changes: dict) -> dict:
@@ -195,13 +207,13 @@ class Library:
             if not valid(value):
                 raise LibraryError(message)
             current[key] = value
-        (self.library_dir / "settings.json").write_text(json.dumps(current, indent=2))
+        _write_json(self.library_dir / "settings.json", current)
         return current
 
     def regenerate_token(self) -> str:
         current = self.app_settings()
         current["token"] = secrets.token_urlsafe(16)
-        (self.library_dir / "settings.json").write_text(json.dumps(current, indent=2))
+        _write_json(self.library_dir / "settings.json", current)
         return current["token"]
 
     # A sound is stored next to its emote as "<emote filename><audio ext>", e.g. kappa.png.mp3
