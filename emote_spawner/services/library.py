@@ -16,7 +16,15 @@ MAX_FILE_SIZE_MB = 10  # max single file size
 
 
 # App-wide settings (settings.json): default value and validator per key. "token" is managed by the library itself.
-SETTINGS = {}
+def _number(lo, hi):
+    return lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
+
+
+SETTINGS = {
+    "size": (256, _number(64, 1024), "Size must be 64 to 1024 pixels"),
+    "position": ("center", lambda v: v in ("center", "random"), "Position must be 'center' or 'random'"),
+    "duration": (3, _number(1, 15), "Display time must be 1 to 15 seconds"),
+}
 
 
 class LibraryError(Exception):

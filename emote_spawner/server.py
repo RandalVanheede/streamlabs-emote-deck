@@ -40,25 +40,24 @@ OVERLAY_HTML = """<!doctype html>
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
 #unmute { position: fixed; top: 12px; left: 50%; translate: -50% 0; display: none; cursor: pointer;
           font: 600 16px system-ui; color: #fff; background: #e5484d; padding: 8px 16px; border-radius: 8px; }
-/* Every emote gets a quick fade in/out (opacity, 3.2s). With no effect it also pops in (scale);
-   an effect replaces the pop and animates transform, so it stacks with the fade. */
-:root { --fade: fade 3.2s linear forwards; }
-img { position: absolute; left: 50%; top: 50%; width: 256px; translate: -50% -50%;
-      animation: var(--fade), pop .9s cubic-bezier(.2, .9, .3, 1.3); }
-.fx-shake  { animation: var(--fade), shake .09s linear infinite; }
-.fx-bounce { animation: var(--fade), bounce .5s ease-in-out infinite; }
-.fx-spin   { animation: var(--fade), spin 1s linear infinite; }
-.fx-pulse  { animation: var(--fade), pulse .6s ease-in-out infinite; }
-.fx-wobble { animation: var(--fade), wobble .8s ease-in-out infinite; }
-.fx-grow      { animation: var(--fade), grow 3s ease-in forwards; }
-.fx-shrink    { animation: var(--fade), shrink 3s ease-in forwards; }
-.fx-float     { animation: var(--fade), float 3s ease-in-out forwards; }
-.fx-swing     { animation: var(--fade), swing 1s ease-in-out infinite; transform-origin: top center; }
-.fx-flash     { animation: var(--fade), flash .4s steps(1) infinite; }
-.fx-jelly     { animation: var(--fade), jelly .9s ease-in-out infinite; }
-.fx-heartbeat { animation: var(--fade), heartbeat 1s ease-in-out infinite; }
-.fx-spin-slow { animation: var(--fade), spin 4s linear infinite; }
-.fx-zoom      { animation: var(--fade), zoom 3s cubic-bezier(.5, 0, 1, .5) forwards; }
+/* Every emote gets a quick fade in/out (opacity, done in JS so it follows the display time). With no effect it
+   also pops in (scale); an effect replaces the pop and animates transform. --dur is the display time. */
+img { position: absolute; left: 50%; top: 50%; width: 256px; translate: -50% -50%; --dur: 3s;
+      animation: pop .9s cubic-bezier(.2, .9, .3, 1.3); }
+.fx-shake  { animation: shake .09s linear infinite; }
+.fx-bounce { animation: bounce .5s ease-in-out infinite; }
+.fx-spin   { animation: spin 1s linear infinite; }
+.fx-pulse  { animation: pulse .6s ease-in-out infinite; }
+.fx-wobble { animation: wobble .8s ease-in-out infinite; }
+.fx-grow      { animation: grow var(--dur) ease-in forwards; }
+.fx-shrink    { animation: shrink var(--dur) ease-in forwards; }
+.fx-float     { animation: float var(--dur) ease-in-out forwards; }
+.fx-swing     { animation: swing 1s ease-in-out infinite; transform-origin: top center; }
+.fx-flash     { animation: flash .4s steps(1) infinite; }
+.fx-jelly     { animation: jelly .9s ease-in-out infinite; }
+.fx-heartbeat { animation: heartbeat 1s ease-in-out infinite; }
+.fx-spin-slow { animation: spin 4s linear infinite; }
+.fx-zoom      { animation: zoom var(--dur) cubic-bezier(.5, 0, 1, .5) forwards; }
 @keyframes shake  { 0%,100% { transform: translate(0,0) rotate(0); } 25% { transform: translate(-12px,6px) rotate(-6deg); }
                     50% { transform: translate(10px,-8px) rotate(5deg); } 75% { transform: translate(-8px,-6px) rotate(-4deg); } }
 @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-60px); } }
@@ -75,17 +74,11 @@ img { position: absolute; left: 50%; top: 50%; width: 256px; translate: -50% -50
 @keyframes zoom      { to { transform: scale(6); } }
 @keyframes wobble { 0%,100% { transform: rotate(0) skewX(0); } 25% { transform: rotate(-12deg) skewX(8deg); }
                     75% { transform: rotate(12deg) skewX(-8deg); } }
-@keyframes fade {         /* 150ms in, visible until 3.05s, 150ms out */
-  0%     { opacity: 0; }
-  4.7%   { opacity: 1; }
-  95.3%  { opacity: 1; }
-  100%   { opacity: 0; }
-}
 @keyframes pop { 0% { scale: 0; } 35% { scale: 1.25; } 60% { scale: .9; } 80%, 100% { scale: 1; } }
 </style></head><body>
 <div id="unmute">🔇 Sound blocked by the browser. Click here to enable</div><script>
 const unmute = document.getElementById("unmute");
-const HOLD = 3, FADE = 0.6;  // seconds
+const SOUND_FADE = 0.6, IMAGE_FADE = 150;  // seconds, ms
 let current = null;  // the emote on screen: { img, source }; a new spawn replaces it fully
 
 // Sounds are decoded once and played from memory (Web Audio): no fetch/decode delay per spawn.
@@ -109,7 +102,7 @@ function stopCurrent() {
   current = null;
 }
 
-async function playSound(url, volume, me) {
+async function playSound(url, volume, hold, me) {
   if (ctx.state !== "running") await ctx.resume().catch(() => {});
   if (ctx.state !== "running") unmute.style.display = "block";  // autoplay blocked (normal tab, not OBS)
   let buffer;
@@ -121,10 +114,10 @@ async function playSound(url, volume, me) {
   source.connect(gain).connect(ctx.destination);
   const t = ctx.currentTime;
   gain.gain.setValueAtTime(volume, t);
-  gain.gain.setValueAtTime(volume, t + HOLD);
-  gain.gain.linearRampToValueAtTime(0, t + HOLD + FADE);
+  gain.gain.setValueAtTime(volume, t + hold);
+  gain.gain.linearRampToValueAtTime(0, t + hold + SOUND_FADE);
   source.start(t);
-  source.stop(t + HOLD + FADE);  // short sounds just end; no loop
+  source.stop(t + hold + SOUND_FADE);  // short sounds just end; no loop
   me.source = source;
 }
 
@@ -141,11 +134,19 @@ events.onmessage = (e) => {
   const img = document.createElement("img");
   img.src = "/static/" + encodeURIComponent(ev.filename);
   img.className = "fx-" + ev.animation;
+  img.style.width = ev.size + "px";
+  img.style.setProperty("--dur", ev.duration + "s");
+  if (ev.position === "random") {  // keep the whole emote on screen
+    img.style.left = ev.size / 2 + Math.random() * Math.max(0, innerWidth - ev.size) + "px";
+    img.style.top = ev.size / 2 + Math.random() * Math.max(0, innerHeight - ev.size) + "px";
+  }
   const me = { img, source: null };
-  img.onanimationend = (a) => { if (a.animationName === "fade" && current === me) stopCurrent(); };
   document.body.appendChild(img);
   current = me;
-  if (ev.sound) playSound(soundUrl(ev), ev.volume / 100, me);
+  const total = ev.duration * 1000 + IMAGE_FADE;
+  img.animate([{ opacity: 0 }, { opacity: 1, offset: IMAGE_FADE / total }, { opacity: 1, offset: 1 - IMAGE_FADE / total }, { opacity: 0 }],
+              { duration: total, fill: "forwards" }).onfinish = () => { if (current === me) stopCurrent(); };
+  if (ev.sound) playSound(soundUrl(ev), ev.volume / 100, ev.duration, me);
 };
 </script></body></html>"""
 
@@ -313,7 +314,8 @@ class HTTPServerManager:
         """Push a spawn to every open overlay. Must run on the server loop."""
         event = {"filename": filename, "url": f"{self.base_url}/static/{filename}",
                  "sound": self.library.sound_for(filename), "sound_version": self.library.sound_version(filename),
-                 **self.library.settings(filename)}
+                 **self.library.settings(filename),
+                 **{k: v for k, v in self.library.app_settings().items() if k in ("size", "position", "duration")}}
         for queue in self._clients:
             queue.put_nowait(event)
         return {**event, "overlays": len(self._clients)}

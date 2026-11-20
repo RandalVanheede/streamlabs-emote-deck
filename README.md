@@ -19,9 +19,10 @@ python -m emote_spawner
    `GET http://127.0.0.1:8765/spawn/random?token=…` or `/spawn/{filename}?token=…`. The secret token stops other
    websites from firing emotes on your stream; **Make new links** replaces it.
 
-Each spawn appears in the centre of the screen for 3 s with a quick (0.15 s) fade in and out. Emotes without an
-animation also pop in with a bounce. Its sound plays at the pad's volume for at most 3 s, then fades out over 0.6 s;
-shorter sounds play once (no loop). A new spawn replaces the one on screen, image and sound.
+Each spawn shows for the display time (default 3 s) with a quick (0.15 s) fade in and out, in the centre or at a
+random spot, at the size you pick (**Settings → Overlay**). Emotes without an animation also pop in with a bounce.
+Its sound plays at the pad's volume for at most the display time, then fades out over 0.6 s; shorter sounds play
+once (no loop). A new spawn replaces the one on screen, image and sound.
 
 The app window is a web page (`emote_spawner/ui/deck.html`) shown with pywebview: Edge WebView2 on Windows
 (built into Windows 10/11), WebKit on macOS. Its `/api/*` calls are refused unless they come from the app itself.

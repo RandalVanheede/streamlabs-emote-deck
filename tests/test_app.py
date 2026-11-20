@@ -68,6 +68,12 @@ def main():
     [e] = call("GET", "/api/emotes")
     assert (e["sound"], e["animation"], e["volume"]) == ("kappa.png.mp3", "shake", 55), e
 
+    # Overlay settings: validated, and sent with every spawn
+    patch_settings = lambda body: call("PATCH", "/api/settings", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    assert patch_settings({"size": 320, "position": "random", "duration": 4.5})["duration"] == 4.5
+    for bad in ({"size": 10}, {"position": "left"}, {"duration": 0}, {"duration": True}, {"bogus": 1}):
+        assert status("PATCH", "/api/settings", body=json.dumps(bad).encode(), headers={"Content-Type": "application/json"}) == 400, bad
+
     # Overlay listener receives spawns with sound, animation and volume
     events, hello, ready = [], [], threading.Event()
 
@@ -100,6 +106,7 @@ def main():
     assert hello == [server._boot_id], hello  # overlay reload signal
     assert [(e["filename"], e["sound"], e["animation"], e["volume"]) for e in events] == [("kappa.png", "kappa.png.mp3", "shake", 55)] * 2, events
     assert all(isinstance(e["sound_version"], int) for e in events), events
+    assert all((e["size"], e["position"], e["duration"]) == (320, "random", 4.5) for e in events), events
 
     # Only images and sounds are served from the library folder: never settings.json (holds the token)
     assert status("GET", "/static/settings.json", deck=False) == 404
