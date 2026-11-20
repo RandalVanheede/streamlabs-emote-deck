@@ -22,6 +22,9 @@ python -m emote_spawner
    your own pad presses and hotkeys always fire.
 5. Twitch chat: set your channel in **Settings → Twitch chat**. Viewers fire an emote by typing its command
    (shown per pad, default its name), e.g. `!angry`, or `!random`. Chat is read anonymously; no login needed.
+6. Hotkeys: **Ctrl+Shift+1 … Ctrl+Shift+0** fire pads 1–10 (the small number on each pad), also while a game has
+   focus. On macOS this needs **System Settings → Privacy & Security → Accessibility** for EmoteDeck (or your
+   terminal when running from source); restart the app after allowing it. Linux: only while the app has focus.
 
 Each spawn shows for the display time (default 3 s) with a quick (0.15 s) fade in and out, in the centre or at a
 random spot, at the size you pick (**Settings → Overlay**). Emotes without an animation also pop in with a bounce.

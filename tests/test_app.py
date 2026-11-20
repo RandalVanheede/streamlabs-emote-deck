@@ -177,6 +177,15 @@ def main():
     assert new != token and status("GET", f"/spawn/kappa.png?token={token}", deck=False) == 403
     assert status("PATCH", "/api/settings", body=b'{"token": "mine"}', headers={"Content-Type": "application/json"}) == 400
 
+    # Hotkeys fire pads by deck position (thread-safe entry point)
+    before = server._last_spawn["kappa.png"]
+    server.fire_pad(0)
+    server.fire_pad(42)  # no such pad: ignored
+    time.sleep(0.3)
+    assert server._last_spawn["kappa.png"] > before
+    from emote_spawner.services.hotkeys import start_hotkeys
+    assert isinstance(start_hotkeys(lambda i: None), str)  # never raises; on Linux reports "not supported"
+
     # Deck order and rename (sound, settings and position move along)
     assert call("POST", "/api/emotes?filename=zebra.png", png_bytes("blue"))["filename"] == "zebra.png"
     assert [e["filename"] for e in call("GET", "/api/emotes")] == ["kappa.png", "zebra.png"]

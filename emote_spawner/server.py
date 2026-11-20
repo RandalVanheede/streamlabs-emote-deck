@@ -163,6 +163,8 @@ class HTTPServerManager:
         self.port = config.port
         self._clients: set[asyncio.Queue] = set()
         self._chat_task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self.hotkey_status = "Hotkeys only work while the app window has focus."
         self.chat_status = "off"
         self._last_spawn = {"*": 0.0}  # monotonic time of the last spawn, overall ("*") and per emote
         self._boot_id = str(time.time_ns())  # overlays reload when this changes, i.e. the app restarted
@@ -178,6 +180,7 @@ class HTTPServerManager:
     def _create_app(self) -> FastAPI:
         @asynccontextmanager
         async def lifespan(app):
+            self._loop = asyncio.get_running_loop()
             self._restart_chat()
             yield
             if self._chat_task:
@@ -272,7 +275,7 @@ class HTTPServerManager:
         @api.get("/info")
         async def info():
             return {"overlay_url": f"{self.base_url}/overlay", "overlays": len(self._clients), "animations": ANIMATIONS,
-                    "chat": self.chat_status}
+                    "chat": self.chat_status, "hotkeys": self.hotkey_status}
 
         @api.post("/spawn/{filename}")
         async def spawn(filename: str):
@@ -342,6 +345,15 @@ class HTTPServerManager:
         if real is None:  # unknown, or not an emote (e.g. its sound)
             raise HTTPException(status_code=404, detail=f"Emote not found: {filename}")
         return self.library.library_dir / real
+
+    def fire_pad(self, index: int):
+        """Fire the pad at this deck position. Thread-safe (called by the hotkey listener)."""
+        def fire():
+            emotes = self.library.list_images()
+            if 0 <= index < len(emotes):
+                self._broadcast(emotes[index]["filename"])
+        if self._loop:
+            self._loop.call_soon_threadsafe(fire)
 
     def _restart_chat(self):
         """(Re)join the Twitch channel from the settings. Runs on the server loop."""
