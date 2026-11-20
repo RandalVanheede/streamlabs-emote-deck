@@ -216,6 +216,21 @@ select.field { cursor: pointer; }
         <p>seconds. Sounds are cut off after this too.</p>
       </div>
     </section>
+    <section aria-labelledby="cd-h">
+      <h3 id="cd-h">Cooldowns</h3>
+      <p>Limit how often chat commands and bot links can fire, so spam can't make the overlay flicker.
+        Your own pad presses and hotkeys always fire.</p>
+      <div class="row">
+        <label for="set-cd-global">Any emote</label>
+        <input id="set-cd-global" class="field" type="number" min="0" max="600" step="1" style="flex: 0 0 90px">
+        <p>seconds between two emotes</p>
+      </div>
+      <div class="row">
+        <label for="set-cd-emote">Same emote</label>
+        <input id="set-cd-emote" class="field" type="number" min="0" max="600" step="1" style="flex: 0 0 90px">
+        <p>seconds before the same emote can fire again</p>
+      </div>
+    </section>
     <section aria-labelledby="links-h">
       <h3 id="links-h">Spawn links for bots</h3>
       <p>Chat bots, Streamer.bot or a hardware deck can fire emotes with these links. They contain a secret key,
@@ -428,6 +443,8 @@ function renderSettings() {
   $("set-size-out").textContent = settings.size + " px";
   $("set-position").value = settings.position;
   $("set-duration").value = settings.duration;
+  $("set-cd-global").value = settings.cooldown_global;
+  $("set-cd-emote").value = settings.cooldown_emote;
   const base = location.origin + "/spawn/";
   $("link-random").value = `${base}random?token=${settings.token}`;
   $("link-one").value = `${base}EMOTE?token=${settings.token}`;
@@ -448,6 +465,8 @@ $("set-size").oninput = () => ($("set-size-out").textContent = $("set-size").val
 $("set-size").onchange = () => saveSetting({ size: Number($("set-size").value) });
 $("set-position").onchange = () => saveSetting({ position: $("set-position").value });
 $("set-duration").onchange = () => saveSetting({ duration: Number($("set-duration").value) });
+$("set-cd-global").onchange = () => saveSetting({ cooldown_global: Number($("set-cd-global").value) });
+$("set-cd-emote").onchange = () => saveSetting({ cooldown_emote: Number($("set-cd-emote").value) });
 async function saveSetting(changes) {
   try { settings = await api("PATCH", "/settings", JSON.stringify(changes), "application/json"); }
   catch (err) { alert(err.message); }

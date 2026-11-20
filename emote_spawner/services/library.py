@@ -24,6 +24,8 @@ SETTINGS = {
     "size": (256, _number(64, 1024), "Size must be 64 to 1024 pixels"),
     "position": ("center", lambda v: v in ("center", "random"), "Position must be 'center' or 'random'"),
     "duration": (3, _number(1, 15), "Display time must be 1 to 15 seconds"),
+    "cooldown_global": (2, _number(0, 600), "Cooldown must be 0 to 600 seconds"),
+    "cooldown_emote": (5, _number(0, 600), "Cooldown must be 0 to 600 seconds"),
 }
 
 

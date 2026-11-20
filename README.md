@@ -18,6 +18,8 @@ python -m emote_spawner
 4. Chat bots / Streamer.bot / a hardware deck can fire too, with the links from **Settings → Spawn links for bots**:
    `GET http://127.0.0.1:8765/spawn/random?token=…` or `/spawn/{filename}?token=…`. The secret token stops other
    websites from firing emotes on your stream; **Make new links** replaces it.
+   **Settings → Cooldowns** limits how often bot links and chat commands fire (429 when cooling down);
+   your own pad presses and hotkeys always fire.
 
 Each spawn shows for the display time (default 3 s) with a quick (0.15 s) fade in and out, in the centre or at a
 random spot, at the size you pick (**Settings → Overlay**). Emotes without an animation also pop in with a bounce.

@@ -159,6 +159,7 @@ class HTTPServerManager:
         self.library = Library(config.library_dir)
         self.port = config.port
         self._clients: set[asyncio.Queue] = set()
+        self._last_spawn = {"*": 0.0}  # monotonic time of the last spawn, overall ("*") and per emote
         self._boot_id = str(time.time_ns())  # overlays reload when this changes, i.e. the app restarted
         self._server = uvicorn.Server(uvicorn.Config(
             self._create_app(),
@@ -189,14 +190,17 @@ class HTTPServerManager:
 
         @app.get("/spawn/random", dependencies=[Depends(spawn_token)])
         async def spawn_random():
-            image_list = self.library.list_images()
-            if not image_list:
-                raise HTTPException(status_code=503, detail="Library is empty")
-            return self._broadcast(random.choice(image_list)["filename"])
+            ready = [e["filename"] for e in self.library.list_images() if self._ready(e["filename"])]
+            if not ready:
+                raise HTTPException(status_code=429, detail="All emotes are on cooldown (or the library is empty)")
+            return self._broadcast(random.choice(ready))
 
         @app.get("/spawn/{filename}", dependencies=[Depends(spawn_token)])
         async def spawn(filename: str):
-            return self._broadcast(self._emote_path(filename).name)
+            name = self._emote_path(filename).name
+            if not self._ready(name):
+                raise HTTPException(status_code=429, detail="On cooldown")
+            return self._broadcast(name)
 
         @app.get("/overlay", response_class=HTMLResponse)
         async def overlay():
@@ -310,8 +314,15 @@ class HTTPServerManager:
             raise HTTPException(status_code=404, detail=f"Emote not found: {filename}")
         return path
 
+    def _ready(self, filename: str) -> bool:
+        """Cooldown check for chat and bot triggers (the streamer's own presses are never blocked)."""
+        cfg, now = self.library.app_settings(), time.monotonic()
+        return (now - self._last_spawn["*"] >= cfg["cooldown_global"]
+                and now - self._last_spawn.get(filename, 0.0) >= cfg["cooldown_emote"])
+
     def _broadcast(self, filename: str) -> dict:
         """Push a spawn to every open overlay. Must run on the server loop."""
+        self._last_spawn["*"] = self._last_spawn[filename] = time.monotonic()
         event = {"filename": filename, "url": f"{self.base_url}/static/{filename}",
                  "sound": self.library.sound_for(filename), "sound_version": self.library.sound_version(filename),
                  **self.library.settings(filename),

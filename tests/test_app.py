@@ -115,6 +115,16 @@ def main():
     # Library files must be revalidated (a replaced sound keeps its filename)
     assert urllib.request.urlopen(base + "/static/kappa.png").headers["Cache-Control"] == "no-cache"
 
+    # Cooldowns block bot links (and chat), never the app's own presses
+    patch_settings({"cooldown_global": 0, "cooldown_emote": 60})
+    assert status("GET", f"/spawn/kappa.png?token={token}", deck=False) == 429  # kappa fired just now
+    assert status("GET", f"/spawn/random?token={token}", deck=False) == 429  # the only emote is cooling down
+    assert call("POST", "/api/spawn/kappa.png")["filename"] == "kappa.png"
+    patch_settings({"cooldown_global": 60, "cooldown_emote": 0})
+    assert status("GET", f"/spawn/kappa.png?token={token}", deck=False) == 429
+    patch_settings({"cooldown_global": 0, "cooldown_emote": 0})
+    assert call("GET", f"/spawn/kappa.png?token={token}", deck=False)["filename"] == "kappa.png"
+
     for bad in ("/spawn/nope.png", "/spawn/..%2Fsecret.png", "/spawn/kappa.png.mp3"):
         assert status("GET", f"{bad}?token={token}", deck=False) == 404, bad
 
