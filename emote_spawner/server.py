@@ -3,6 +3,7 @@
 import asyncio
 import json
 import random
+import secrets
 import tempfile
 import threading
 import time
@@ -174,19 +175,21 @@ class HTTPServerManager:
         async def images():
             return self.library.list_images()
 
-        @app.get("/spawn/random")
+        def spawn_token(token: str = ""):
+            # Spawn links are plain GETs for chat bots, so any website could hit them; a secret token stops that.
+            if not secrets.compare_digest(token, self.library.app_settings()["token"]):
+                raise HTTPException(status_code=403, detail="Missing or wrong token. Copy the spawn link from the app's settings.")
+
+        @app.get("/spawn/random", dependencies=[Depends(spawn_token)])
         async def spawn_random():
             image_list = self.library.list_images()
             if not image_list:
                 raise HTTPException(status_code=503, detail="Library is empty")
             return self._broadcast(random.choice(image_list)["filename"])
 
-        @app.get("/spawn/{filename}")
+        @app.get("/spawn/{filename}", dependencies=[Depends(spawn_token)])
         async def spawn(filename: str):
-            path = self.library.get_path(filename)
-            if path is None or path.suffix.lower() not in ALLOWED_EXTENSIONS:  # not an emote (e.g. its sound)
-                raise HTTPException(status_code=404, detail=f"Image not found: {filename}")
-            return self._broadcast(path.name)
+            return self._broadcast(self._emote_path(filename).name)
 
         @app.get("/overlay", response_class=HTMLResponse)
         async def overlay():
@@ -240,17 +243,28 @@ class HTTPServerManager:
             path.write_bytes(body)
             return path
 
-        def emote(filename: str) -> Path:
-            path = self.library.get_path(filename)
-            if path is None or path.suffix.lower() not in ALLOWED_EXTENSIONS:
-                raise HTTPException(status_code=404, detail=f"Emote not found: {filename}")
-            return path
-
+        emote = self._emote_path
         api = APIRouter(prefix="/api", dependencies=[Depends(guard)])
 
         @api.get("/info")
         async def info():
             return {"overlay_url": f"{self.base_url}/overlay", "overlays": len(self._clients), "animations": ANIMATIONS}
+
+        @api.post("/spawn/{filename}")
+        async def spawn(filename: str):
+            return self._broadcast(emote(filename).name)
+
+        @api.get("/settings")
+        async def get_settings():
+            return self.library.app_settings()
+
+        @api.patch("/settings")
+        async def update_settings(changes: dict = Body(...)):
+            return self.library.update_app_settings(changes)
+
+        @api.post("/settings/token")
+        async def new_token():
+            return {"token": self.library.regenerate_token()}
 
         @api.get("/emotes")
         async def list_emotes():
@@ -282,6 +296,12 @@ class HTTPServerManager:
             return {"ok": True}
 
         return api
+
+    def _emote_path(self, filename: str) -> Path:
+        path = self.library.get_path(filename)
+        if path is None or path.suffix.lower() not in ALLOWED_EXTENSIONS:  # not an emote (e.g. its sound)
+            raise HTTPException(status_code=404, detail=f"Emote not found: {filename}")
+        return path
 
     def _broadcast(self, filename: str) -> dict:
         """Push a spawn to every open overlay. Must run on the server loop."""

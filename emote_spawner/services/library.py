@@ -1,6 +1,7 @@
 """Image library service — copy, list, delete images."""
 
 import json
+import secrets
 from pathlib import Path
 from PIL import Image as PILImage
 import shutil
@@ -12,6 +13,10 @@ ANIMATIONS = (
     "swing", "flash", "grow", "shrink", "zoom", "float",
 )  # must match .fx-* classes in the overlay
 MAX_FILE_SIZE_MB = 10  # max single file size
+
+
+# App-wide settings (settings.json): default value and validator per key. "token" is managed by the library itself.
+SETTINGS = {}
 
 
 class LibraryError(Exception):
@@ -114,6 +119,36 @@ class Library:
         if volume is not None:
             entry["volume"] = volume
         self._save_meta(meta)
+
+    # App-wide settings live in settings.json
+    def app_settings(self) -> dict:
+        path = self.library_dir / "settings.json"
+        try:
+            stored = json.loads(path.read_text())
+        except (FileNotFoundError, ValueError):
+            stored = {}
+        if not stored.get("token"):
+            stored["token"] = secrets.token_urlsafe(16)
+            path.write_text(json.dumps(stored, indent=2))
+        return {**{k: default for k, (default, _, _) in SETTINGS.items()}, **stored}
+
+    def update_app_settings(self, changes: dict) -> dict:
+        current = self.app_settings()
+        for key, value in changes.items():
+            if key not in SETTINGS:
+                raise LibraryError(f"Unknown setting '{key}'")
+            _, valid, message = SETTINGS[key]
+            if not valid(value):
+                raise LibraryError(message)
+            current[key] = value
+        (self.library_dir / "settings.json").write_text(json.dumps(current, indent=2))
+        return current
+
+    def regenerate_token(self) -> str:
+        current = self.app_settings()
+        current["token"] = secrets.token_urlsafe(16)
+        (self.library_dir / "settings.json").write_text(json.dumps(current, indent=2))
+        return current["token"]
 
     # A sound is stored next to its emote as "<emote filename><audio ext>", e.g. kappa.png.mp3
     def sound_for(self, filename: str) -> str | None:

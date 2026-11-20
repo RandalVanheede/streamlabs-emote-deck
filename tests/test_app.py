@@ -90,8 +90,11 @@ def main():
     ready.wait(5)
     time.sleep(0.3)  # let the server register the queue
     assert call("GET", "/api/info")["overlays"] == 1
-    assert call("GET", "/spawn/kappa.png", deck=False)["overlays"] == 1
-    assert call("GET", "/spawn/random", deck=False)["filename"] == "kappa.png"
+    token = call("GET", "/api/settings")["token"]
+    assert status("GET", "/spawn/kappa.png", deck=False) == 403  # spawn links need the secret token
+    assert status("GET", "/spawn/random?token=wrong", deck=False) == 403
+    assert call("GET", f"/spawn/kappa.png?token={token}", deck=False)["overlays"] == 1
+    assert call("POST", "/api/spawn/kappa.png")["filename"] == "kappa.png"  # the app's own buttons
     t.join(5)
     assert hello == [server._boot_id], hello  # overlay reload signal
     assert [(e["filename"], e["sound"], e["animation"], e["volume"]) for e in events] == [("kappa.png", "kappa.png.mp3", "shake", 55)] * 2, events
@@ -101,7 +104,12 @@ def main():
     assert urllib.request.urlopen(base + "/static/kappa.png").headers["Cache-Control"] == "no-cache"
 
     for bad in ("/spawn/nope.png", "/spawn/..%2Fsecret.png", "/spawn/kappa.png.mp3"):
-        assert status("GET", bad, deck=False) == 404, bad
+        assert status("GET", f"{bad}?token={token}", deck=False) == 404, bad
+
+    # New token: old links stop working; token can't be set directly
+    new = call("POST", "/api/settings/token")["token"]
+    assert new != token and status("GET", f"/spawn/kappa.png?token={token}", deck=False) == 403
+    assert status("PATCH", "/api/settings", body=b'{"token": "mine"}', headers={"Content-Type": "application/json"}) == 400
 
     # Remove sound, then emote (cleans settings)
     call("DELETE", "/api/emotes/kappa.png/sound")

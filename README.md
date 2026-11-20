@@ -15,7 +15,9 @@ python -m emote_spawner
    The light next to the title turns amber once the overlay is connected.
 3. Click a pad to fire it. Its settings open on the right: sound (mp3/wav/ogg), volume, and animation
    (shake, bounce, spin, pulse, heartbeat, wobble, jelly, swing, flash, grow, shrink, zoom, float, …).
-4. Chat bots / Streamer.bot / a hardware deck can fire too: `GET http://127.0.0.1:8765/spawn/random` or `/spawn/{filename}`.
+4. Chat bots / Streamer.bot / a hardware deck can fire too, with the links from **Settings → Spawn links for bots**:
+   `GET http://127.0.0.1:8765/spawn/random?token=…` or `/spawn/{filename}?token=…`. The secret token stops other
+   websites from firing emotes on your stream; **Make new links** replaces it.
 
 Each spawn appears in the centre of the screen for 3 s with a quick (0.15 s) fade in and out. Emotes without an
 animation also pop in with a bounce. Its sound plays at the pad's volume for at most 3 s, then fades out over 0.6 s;

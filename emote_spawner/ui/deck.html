@@ -98,6 +98,20 @@ section { display: flex; flex-direction: column; gap: 10px; }
 .fire:focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
 .remove { align-self: center; background: transparent; color: var(--danger); }
 
+/* Settings dialog */
+dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 0; border-radius: 24px; padding: 24px;
+  background: var(--panel); color: var(--text); box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+dialog::backdrop { background: rgba(10,8,18,.6); }
+dialog form { display: flex; flex-direction: column; gap: 22px; }
+dialog h2 { font-size: 22px; }
+dialog p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.row > label { font-size: 13px; color: var(--muted); min-width: 110px; }
+.field { all: unset; box-sizing: border-box; flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px; background: var(--well);
+  color: #D9D4EA; font-size: 13px; box-shadow: inset 0 1px 2px rgba(0,0,0,.5); user-select: text; }
+.field:focus-visible { outline: 2px solid var(--led); outline-offset: 2px; }
+.dialog-actions { display: flex; justify-content: flex-end; }
+
 /* Animation previews: looping versions of the overlay effects */
 .fx-shake { animation: shake .09s linear infinite; }
 .fx-bounce { animation: bounce .5s ease-in-out infinite; }
@@ -139,6 +153,7 @@ section { display: flex; flex-direction: column; gap: 10px; }
     <input id="overlay-url" readonly>
     <button class="ghost" id="copy">Copy</button>
     <button class="ghost" id="random">Fire random</button>
+    <button class="ghost" id="open-settings">Settings</button>
   </div>
 </header>
 
@@ -176,6 +191,31 @@ section { display: flex; flex-direction: column; gap: 10px; }
     <button class="ghost remove" id="remove"></button>
   </aside>
 </main>
+
+<dialog id="settings" aria-labelledby="settings-h">
+  <form method="dialog">
+    <h2 id="settings-h">Settings</h2>
+    <section aria-labelledby="links-h">
+      <h3 id="links-h">Spawn links for bots</h3>
+      <p>Chat bots, Streamer.bot or a hardware deck can fire emotes with these links. They contain a secret key,
+        so other websites can't fire emotes on your stream. Keep them private.</p>
+      <div class="row">
+        <label for="link-random">Random emote</label>
+        <input id="link-random" class="field" readonly>
+        <button type="button" class="ghost" data-copy="link-random">Copy</button>
+      </div>
+      <div class="row">
+        <label for="link-one">One emote</label>
+        <input id="link-one" class="field" readonly>
+        <button type="button" class="ghost" data-copy="link-one">Copy</button>
+      </div>
+      <p>Replace <b>EMOTE</b> with the emote's file name, e.g. <span id="link-example"></span>.</p>
+      <div class="row"><button type="button" class="ghost" id="new-token">Make new links</button>
+        <p>Old links stop working right away.</p></div>
+    </section>
+    <div class="dialog-actions"><button class="fire" style="width: auto; padding: 0 28px; height: 46px">Done</button></div>
+  </form>
+</dialog>
 
 <input type="file" id="pick-images" accept=".png,.gif,.jpg,.jpeg,.webp" multiple hidden>
 <input type="file" id="pick-sound" accept=".mp3,.wav,.ogg" hidden>
@@ -284,7 +324,7 @@ async function fire(filename, pad) {
   }
   renderInspector();
   try {
-    const res = await fetch("/spawn/" + enc(filename)).then((r) => r.json());
+    const res = await api("POST", "/spawn/" + enc(filename));
     hint(res.overlays ? `Fired ${stem(filename)}.` : `Fired ${stem(filename)}, but no overlay is open. Add the browser source in Streamlabs.`, !res.overlays);
   } catch (err) {
     hint(`Could not fire ${stem(filename)}: ${err.message}`, true);
@@ -343,12 +383,13 @@ $("random").onclick = () => {
   const e = emotes[Math.floor(Math.random() * emotes.length)];
   fire(e.filename, $("deck").children[emotes.indexOf(e)]);
 };
-$("copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("overlay-url").value); }
-  catch { $("overlay-url").select(); document.execCommand("copy"); }  // older WebKit without async clipboard
-  $("copy").textContent = "Copied";
-  setTimeout(() => ($("copy").textContent = "Copy"), 1500);
-};
+async function copyText(input, button) {
+  try { await navigator.clipboard.writeText(input.value); }
+  catch { input.select(); document.execCommand("copy"); }  // older WebKit without async clipboard
+  button.textContent = "Copied";
+  setTimeout(() => (button.textContent = "Copy"), 1500);
+}
+$("copy").onclick = () => copyText($("overlay-url"), $("copy"));
 
 // Drop image files anywhere on the window to add them
 addEventListener("dragover", (ev) => { ev.preventDefault(); document.body.classList.add("dropping"); });
@@ -358,6 +399,31 @@ addEventListener("drop", (ev) => {
   document.body.classList.remove("dropping");
   if (ev.dataTransfer.files.length) addImages([...ev.dataTransfer.files]);
 });
+
+// Settings dialog
+let settings = {};
+function renderSettings() {
+  const base = location.origin + "/spawn/";
+  $("link-random").value = `${base}random?token=${settings.token}`;
+  $("link-one").value = `${base}EMOTE?token=${settings.token}`;
+  $("link-example").textContent = emotes[0] ? emotes[0].filename : "angry.png";
+}
+$("open-settings").onclick = async () => {
+  settings = await api("GET", "/settings");
+  renderSettings();
+  $("settings").showModal();
+};
+document.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = () => copyText($(b.dataset.copy), b)));
+$("new-token").onclick = async () => {
+  if (!confirm("Make new spawn links? Bots using the old links stop working until you update them.")) return;
+  settings.token = (await api("POST", "/settings/token")).token;
+  renderSettings();
+};
+async function saveSetting(changes) {
+  try { settings = await api("PATCH", "/settings", JSON.stringify(changes), "application/json"); }
+  catch (err) { alert(err.message); }
+  renderSettings();
+}
 
 async function pollOverlay() {
   try {
