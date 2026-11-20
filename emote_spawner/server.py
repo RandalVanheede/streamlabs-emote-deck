@@ -13,18 +13,22 @@ import uvicorn
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from emote_spawner.services.library import (
-    ALLOWED_EXTENSIONS, ANIMATIONS, MAX_FILE_SIZE_MB, Library, LibraryError,
+    ALLOWED_EXTENSIONS, ANIMATIONS, AUDIO_EXTENSIONS, MAX_FILE_SIZE_MB, Library, LibraryError,
 )
 
 DECK_HTML = Path(__file__).parent / "ui" / "deck.html"
 
 
 class LibraryFiles(StaticFiles):
-    """Library files change in place (a replaced sound keeps its name), so browsers must revalidate every time."""
+    """Serves only emote images and sounds (never settings.json, which holds the spawn token).
+    Files change in place (a replaced sound keeps its name), so browsers must revalidate every time."""
 
     async def get_response(self, path, scope):
+        if Path(path).suffix.lower() not in ALLOWED_EXTENSIONS | AUDIO_EXTENSIONS:
+            raise HTTPException(status_code=404)
         response = await super().get_response(path, scope)
         response.headers["Cache-Control"] = "no-cache"
         return response
@@ -166,6 +170,8 @@ class HTTPServerManager:
 
     def _create_app(self) -> FastAPI:
         app = FastAPI(title="StreamLabs Emote Spawner")
+        # DNS rebinding: a website re-pointing its own domain at 127.0.0.1 would otherwise read our pages as same-origin
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
         @app.get("/health")
         async def health():

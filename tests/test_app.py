@@ -53,7 +53,8 @@ def main():
 
     # API refuses requests without the app's header (other websites) or with a foreign Host (DNS rebinding)
     assert status("GET", "/api/emotes", deck=False) == 403
-    assert status("GET", "/api/emotes", headers={"Host": "evil.example:8799"}) == 403
+    assert status("GET", "/api/emotes", headers={"Host": "evil.example:8799"}) in (400, 403)
+    assert status("GET", "/overlay", deck=False, headers={"Host": "evil.example:8799"}) == 400  # whole app checks Host
 
     # Add emote by upload, attach sound, set animation + volume
     assert call("POST", "/api/emotes?filename=kappa.png", png_bytes("red"))["filename"] == "kappa.png"
@@ -99,6 +100,10 @@ def main():
     assert hello == [server._boot_id], hello  # overlay reload signal
     assert [(e["filename"], e["sound"], e["animation"], e["volume"]) for e in events] == [("kappa.png", "kappa.png.mp3", "shake", 55)] * 2, events
     assert all(isinstance(e["sound_version"], int) for e in events), events
+
+    # Only images and sounds are served from the library folder: never settings.json (holds the token)
+    assert status("GET", "/static/settings.json", deck=False) == 404
+    assert status("GET", "/static/deck.json", deck=False) == 404
 
     # Library files must be revalidated (a replaced sound keeps its filename)
     assert urllib.request.urlopen(base + "/static/kappa.png").headers["Cache-Control"] == "no-cache"
