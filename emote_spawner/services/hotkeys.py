@@ -64,6 +64,8 @@ def _macos(on_pad) -> str:
     keydown_mask = 1 << 10
 
     def handler(event):
+        if event.isARepeat():  # holding the keys must not spam the overlay
+            return
         if event.modifierFlags() & (ctrl | shift | option | command) == ctrl | shift and event.keyCode() in keycodes:
             on_pad(keycodes[event.keyCode()])
 
@@ -72,8 +74,9 @@ def _macos(on_pad) -> str:
         _monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(keydown_mask, handler)
 
     AppHelper.callAfter(install)  # AppKit wants this on the main thread
-    trusted = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices").AXIsProcessTrusted()
-    if not trusted:
+    ax_trusted = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices").AXIsProcessTrusted
+    ax_trusted.restype = ctypes.c_bool  # returns a 1-byte Boolean; the default c_int would read garbage bits
+    if not ax_trusted():
         return ("Hotkeys need permission: System Settings → Privacy & Security → Accessibility → turn on EmoteDeck "
                 "(or your terminal when running from source), then restart the app.")
     return f"{LABEL} active."

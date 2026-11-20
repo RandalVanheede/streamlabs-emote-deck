@@ -485,7 +485,7 @@ $("copy").onclick = () => copyText($("overlay-url"), $("copy"));
 // Hotkeys while this window has focus (globally they're handled by the app itself)
 addEventListener("keydown", (ev) => {
   const m = /^(?:Digit|Numpad)(\d)$/.exec(ev.code);  // physical key, so AZERTY works too
-  if (!m || !ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
+  if (!m || !ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey || ev.repeat) return;
   ev.preventDefault();
   const i = (Number(m[1]) + 9) % 10;  // 1→0 … 0→9
   if (emotes[i]) fire(emotes[i].filename, $("deck").children[i]);
