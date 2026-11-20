@@ -200,7 +200,7 @@ class HTTPServerManager:
 
         def spawn_token(token: str = ""):
             # Spawn links are plain GETs for chat bots, so any website could hit them; a secret token stops that.
-            if not secrets.compare_digest(token, self.library.app_settings()["token"]):
+            if not secrets.compare_digest(token.encode(), self.library.app_settings()["token"].encode()):
                 raise HTTPException(status_code=403, detail="Missing or wrong token. Copy the spawn link from the app's settings.")
 
         @app.get("/spawn/random", dependencies=[Depends(spawn_token)])
@@ -353,7 +353,10 @@ class HTTPServerManager:
             if 0 <= index < len(emotes):
                 self._broadcast(emotes[index]["filename"])
         if self._loop:
-            self._loop.call_soon_threadsafe(fire)
+            try:
+                self._loop.call_soon_threadsafe(fire)
+            except RuntimeError:  # loop closed while the app shuts down
+                pass
 
     def _restart_chat(self):
         """(Re)join the Twitch channel from the settings. Runs on the server loop."""

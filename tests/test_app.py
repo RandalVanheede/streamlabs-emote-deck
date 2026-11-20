@@ -37,6 +37,7 @@ def fake_twitch_chat():
             if line.startswith(b"JOIN"):
                 f.write(b":v!v@v.tmi.twitch.tv PRIVMSG #testchan :hello\r\n"
                         b":v!v@v.tmi.twitch.tv PRIVMSG #testchan :!\r\n"
+                        b":v!v@v.tmi.twitch.tv PRIVMSG #testchan :!boom\r\n"
                         b":v!v@v.tmi.twitch.tv PRIVMSG #testchan :!KAPPA please\r\n"
                         b"PING :tmi.twitch.tv\r\n")
                 f.flush()
@@ -172,6 +173,8 @@ def main():
     for bad in ("/spawn/nope.png", "/spawn/..%2Fsecret.png", "/spawn/kappa.png.mp3"):
         assert status("GET", f"{bad}?token={token}", deck=False) == 404, bad
 
+    assert status("GET", "/spawn/random?token=%C3%A9", deck=False) == 403  # non-ASCII token: 403, not a crash
+
     # New token: old links stop working; token can't be set directly
     new = call("POST", "/api/settings/token")["token"]
     assert new != token and status("GET", f"/spawn/kappa.png?token={token}", deck=False) == 403
@@ -196,7 +199,7 @@ def main():
     emotes = call("GET", "/api/emotes")
     assert [e["filename"] for e in emotes] == ["zebra.png", "Kappa Pride.png"], emotes
     assert (emotes[1]["sound"], emotes[1]["animation"]) == ("Kappa Pride.png.mp3", "shake"), emotes[1]
-    for bad in ("ZEBRA", "../evil", ""):
+    for bad in ("ZEBRA", "../evil", "", "CON"):
         assert status("POST", "/api/emotes/Kappa%20Pride.png/rename", body=json.dumps({"name": bad}).encode(),
                       headers={"Content-Type": "application/json"}) == 400, bad
     rename("Kappa%20Pride.png", "kappa")
