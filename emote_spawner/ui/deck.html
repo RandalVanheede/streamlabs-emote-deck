@@ -184,6 +184,13 @@ select.field { cursor: pointer; }
         <output id="vol-out" for="vol"></output>
       </div>
     </section>
+    <section aria-labelledby="cmd-h">
+      <h3 id="cmd-h"><label for="cmd">Chat command</label></h3>
+      <div class="row" style="gap: 0">
+        <span style="padding: 9px 4px 9px 12px; border-radius: 10px 0 0 10px; background: var(--well); color: var(--muted); font-size: 13px">!</span>
+        <input id="cmd" class="field" style="border-radius: 0 10px 10px 0; padding-left: 2px" maxlength="25" autocomplete="off" spellcheck="false">
+      </div>
+    </section>
     <section aria-labelledby="anim-h">
       <h3 id="anim-h">Animation</h3>
       <div id="chips"></div>
@@ -215,6 +222,16 @@ select.field { cursor: pointer; }
         <input id="set-duration" class="field" type="number" min="1" max="15" step="0.5" style="flex: 0 0 90px">
         <p>seconds. Sounds are cut off after this too.</p>
       </div>
+    </section>
+    <section aria-labelledby="chat-h">
+      <h3 id="chat-h">Twitch chat</h3>
+      <p>Viewers fire emotes by typing their command in chat, e.g. <b>!angry</b>, or <b>!random</b>.
+        Leave the channel empty to turn chat commands off.</p>
+      <div class="row">
+        <label for="set-channel">Channel</label>
+        <input id="set-channel" class="field" placeholder="your channel name" autocomplete="off" spellcheck="false">
+      </div>
+      <p id="chat-status" role="status"></p>
     </section>
     <section aria-labelledby="cd-h">
       <h3 id="cd-h">Cooldowns</h3>
@@ -337,6 +354,7 @@ function renderInspector() {
       $("sound-len").textContent = s > 3 ? `${s.toFixed(1)} s, cut at 3 s` : `${s.toFixed(1)} s`;
     };
   }
+  $("cmd").value = e.command;
   $("vol").value = e.volume;
   $("vol").disabled = !e.sound;
   $("vol-out").textContent = e.volume + "%";
@@ -407,6 +425,7 @@ $("play").onclick = () => {
 };
 $("vol").oninput = () => ($("vol-out").textContent = $("vol").value + "%");
 $("vol").onchange = () => update({ volume: Number($("vol").value) });
+$("cmd").onchange = () => update({ command: $("cmd").value.trim() });
 $("fire").onclick = () => fire(selected, [...document.querySelectorAll(".pad")].find((p) => p.classList.contains("selected")));
 $("remove").onclick = async () => {
   if (!confirm(`Remove ${stem(selected)} and its sound from the deck?`)) return;
@@ -443,6 +462,7 @@ function renderSettings() {
   $("set-size-out").textContent = settings.size + " px";
   $("set-position").value = settings.position;
   $("set-duration").value = settings.duration;
+  $("set-channel").value = settings.channel;
   $("set-cd-global").value = settings.cooldown_global;
   $("set-cd-emote").value = settings.cooldown_emote;
   const base = location.origin + "/spawn/";
@@ -465,6 +485,7 @@ $("set-size").oninput = () => ($("set-size-out").textContent = $("set-size").val
 $("set-size").onchange = () => saveSetting({ size: Number($("set-size").value) });
 $("set-position").onchange = () => saveSetting({ position: $("set-position").value });
 $("set-duration").onchange = () => saveSetting({ duration: Number($("set-duration").value) });
+$("set-channel").onchange = () => saveSetting({ channel: $("set-channel").value.trim().replace(/^#/, "").toLowerCase() });
 $("set-cd-global").onchange = () => saveSetting({ cooldown_global: Number($("set-cd-global").value) });
 $("set-cd-emote").onchange = () => saveSetting({ cooldown_emote: Number($("set-cd-emote").value) });
 async function saveSetting(changes) {
@@ -480,6 +501,7 @@ async function pollOverlay() {
     $("overlay-url").value = info.overlay_url;
     $("led").classList.toggle("on", info.overlays > 0);
     $("status-text").textContent = info.overlays ? "Overlay connected" : "No overlay open";
+    $("chat-status").textContent = info.chat === "off" ? "Chat commands are off." : `Chat: ${info.chat}`;
   } catch { $("status-text").textContent = "Server not reachable"; }
 }
 

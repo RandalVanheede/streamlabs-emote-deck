@@ -9,12 +9,15 @@ import threading
 import time
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from emote_spawner.services.chat import TWITCH_IRC, run_chat
 from emote_spawner.services.library import (
     ALLOWED_EXTENSIONS, ANIMATIONS, AUDIO_EXTENSIONS, MAX_FILE_SIZE_MB, Library, LibraryError,
 )
@@ -159,6 +162,8 @@ class HTTPServerManager:
         self.library = Library(config.library_dir)
         self.port = config.port
         self._clients: set[asyncio.Queue] = set()
+        self._chat_task: asyncio.Task | None = None
+        self.chat_status = "off"
         self._last_spawn = {"*": 0.0}  # monotonic time of the last spawn, overall ("*") and per emote
         self._boot_id = str(time.time_ns())  # overlays reload when this changes, i.e. the app restarted
         self._server = uvicorn.Server(uvicorn.Config(
@@ -171,7 +176,14 @@ class HTTPServerManager:
         self._thread: threading.Thread | None = None
 
     def _create_app(self) -> FastAPI:
-        app = FastAPI(title="StreamLabs Emote Spawner")
+        @asynccontextmanager
+        async def lifespan(app):
+            self._restart_chat()
+            yield
+            if self._chat_task:
+                self._chat_task.cancel()
+
+        app = FastAPI(title="StreamLabs Emote Spawner", lifespan=lifespan)
         # DNS rebinding: a website re-pointing its own domain at 127.0.0.1 would otherwise read our pages as same-origin
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
@@ -259,7 +271,8 @@ class HTTPServerManager:
 
         @api.get("/info")
         async def info():
-            return {"overlay_url": f"{self.base_url}/overlay", "overlays": len(self._clients), "animations": ANIMATIONS}
+            return {"overlay_url": f"{self.base_url}/overlay", "overlays": len(self._clients), "animations": ANIMATIONS,
+                    "chat": self.chat_status}
 
         @api.post("/spawn/{filename}")
         async def spawn(filename: str):
@@ -271,7 +284,10 @@ class HTTPServerManager:
 
         @api.patch("/settings")
         async def update_settings(changes: dict = Body(...)):
-            return self.library.update_app_settings(changes)
+            result = self.library.update_app_settings(changes)
+            if "channel" in changes:
+                self._restart_chat()
+            return result
 
         @api.post("/settings/token")
         async def new_token():
@@ -287,8 +303,9 @@ class HTTPServerManager:
                 return {"filename": self.library.add_image(await upload(request, filename, tmp))}
 
         @api.patch("/emotes/{filename}")
-        async def update_emote(filename: str, animation: str | None = Body(None), volume: int | None = Body(None)):
-            self.library.update_settings(emote(filename).name, animation=animation, volume=volume)
+        async def update_emote(filename: str, animation: str | None = Body(None), volume: int | None = Body(None),
+                               command: str | None = Body(None)):
+            self.library.update_settings(emote(filename).name, animation=animation, volume=volume, command=command)
             return self.library.settings(filename)
 
         @api.delete("/emotes/{filename}")
@@ -309,10 +326,42 @@ class HTTPServerManager:
         return api
 
     def _emote_path(self, filename: str) -> Path:
-        path = self.library.get_path(filename)
-        if path is None or path.suffix.lower() not in ALLOWED_EXTENSIONS:  # not an emote (e.g. its sound)
+        # Use the stored spelling: on case-insensitive disks (macOS, Windows) "KAPPA.PNG" would otherwise slip past
+        # the per-emote cooldown and miss the emote's settings
+        wanted = Path(filename).name.casefold()
+        real = next((e["filename"] for e in self.library.list_images() if e["filename"].casefold() == wanted), None)
+        if real is None:  # unknown, or not an emote (e.g. its sound)
             raise HTTPException(status_code=404, detail=f"Emote not found: {filename}")
-        return path
+        return self.library.library_dir / real
+
+    def _restart_chat(self):
+        """(Re)join the Twitch channel from the settings. Runs on the server loop."""
+        if self._chat_task:
+            self._chat_task.cancel()
+            self._chat_task = None
+        channel = self.library.app_settings()["channel"].lower()
+        self.chat_status = "off"
+        if channel:
+            def set_status(status):
+                self.chat_status = status
+            irc = getattr(self.config, "irc", TWITCH_IRC)
+            self._chat_task = asyncio.create_task(run_chat(channel, self._on_chat, set_status, irc))
+
+    def _on_chat(self, text: str):
+        """Fire the emote whose command a viewer typed, e.g. "!angry" or "!random", respecting cooldowns."""
+        words = text[1:].split() if text.startswith("!") else []
+        if not words:
+            return
+        command = words[0].lower()
+        emotes = self.library.list_images()
+        if command == "random":
+            ready = [e["filename"] for e in emotes if self._ready(e["filename"])]
+            if ready:
+                self._broadcast(random.choice(ready))
+            return
+        match = next((e["filename"] for e in emotes if e["command"] == command), None)
+        if match and self._ready(match):
+            self._broadcast(match)
 
     def _ready(self, filename: str) -> bool:
         """Cooldown check for chat and bot triggers (the streamer's own presses are never blocked)."""

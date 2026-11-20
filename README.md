@@ -20,6 +20,8 @@ python -m emote_spawner
    websites from firing emotes on your stream; **Make new links** replaces it.
    **Settings → Cooldowns** limits how often bot links and chat commands fire (429 when cooling down);
    your own pad presses and hotkeys always fire.
+5. Twitch chat: set your channel in **Settings → Twitch chat**. Viewers fire an emote by typing its command
+   (shown per pad, default its name), e.g. `!angry`, or `!random`. Chat is read anonymously; no login needed.
 
 Each spawn shows for the display time (default 3 s) with a quick (0.15 s) fade in and out, in the centre or at a
 random spot, at the size you pick (**Settings → Overlay**). Emotes without an animation also pop in with a bounce.

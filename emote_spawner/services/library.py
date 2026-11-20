@@ -1,6 +1,7 @@
 """Image library service — copy, list, delete images."""
 
 import json
+import re
 import secrets
 from pathlib import Path
 from PIL import Image as PILImage
@@ -26,7 +27,14 @@ SETTINGS = {
     "duration": (3, _number(1, 15), "Display time must be 1 to 15 seconds"),
     "cooldown_global": (2, _number(0, 600), "Cooldown must be 0 to 600 seconds"),
     "cooldown_emote": (5, _number(0, 600), "Cooldown must be 0 to 600 seconds"),
+    "channel": ("", lambda v: isinstance(v, str) and (v == "" or re.fullmatch(r"\w{3,25}", v) is not None),
+                "Twitch channel names are 3 to 25 letters, digits or underscores"),
 }
+COMMAND_RE = re.compile(r"[a-z0-9_]{1,25}")
+
+
+def default_command(filename: str) -> str:
+    return re.sub(r"[^a-z0-9_]", "", Path(filename).stem.lower())[:25]
 
 
 class LibraryError(Exception):
@@ -112,9 +120,11 @@ class Library:
         (self.library_dir / "deck.json").write_text(json.dumps(meta, indent=2))
 
     def settings(self, filename: str) -> dict:
-        return {"animation": "none", "volume": 100, **self._meta().get(Path(filename).name, {})}
+        defaults = {"animation": "none", "volume": 100, "command": default_command(filename)}
+        return {**defaults, **self._meta().get(Path(filename).name, {})}
 
-    def update_settings(self, filename: str, animation: str | None = None, volume: int | None = None):
+    def update_settings(self, filename: str, animation: str | None = None, volume: int | None = None,
+                        command: str | None = None):
         target = self.get_path(filename)
         if target is None:
             raise LibraryError(f"Emote not found: {filename}")
@@ -122,12 +132,18 @@ class Library:
             raise LibraryError(f"Unknown animation '{animation}'")
         if volume is not None and not (isinstance(volume, int) and 0 <= volume <= 100):
             raise LibraryError("Volume must be a whole number from 0 to 100")
+        if command is not None:
+            command = command.lower().removeprefix("!")
+            if not COMMAND_RE.fullmatch(command):
+                raise LibraryError("Chat commands are 1 to 25 letters, digits or underscores")
         meta = self._meta()
         entry = meta.setdefault(target.name, {})
         if animation is not None:
             entry["animation"] = animation
         if volume is not None:
             entry["volume"] = volume
+        if command is not None:
+            entry["command"] = command
         self._save_meta(meta)
 
     # App-wide settings live in settings.json
