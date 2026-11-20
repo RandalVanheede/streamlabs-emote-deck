@@ -1,0 +1,118 @@
+"""Self-check: run with `python -m tests.test_app` (no extra deps)."""
+
+import io
+import json
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+from PIL import Image
+
+from emote_spawner.server import HTTPServerManager
+from emote_spawner.services.library import ANIMATIONS
+
+
+def png_bytes(color) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGBA", (8, 8), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def main():
+    lib = Path(tempfile.mkdtemp())
+
+    class Cfg:
+        library_dir, host, port = lib, "127.0.0.1", 8799
+
+    server = HTTPServerManager(Cfg)
+    assert server.start(), "server did not start"
+    base = server.base_url
+
+    def call(method, path, body=None, headers=None, deck=True):
+        h = {"X-Emote-Deck": "1"} if deck else {}
+        h.update(headers or {})
+        req = urllib.request.Request(base + path, data=body, method=method, headers=h)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.loads(r.read() or b"null")
+
+    def status(method, path, **kw):
+        try:
+            call(method, path, **kw)
+            return 200
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    # Deck page and overlay are served
+    assert b"Emote Deck" in urllib.request.urlopen(base + "/").read()
+    overlay = urllib.request.urlopen(base + "/overlay").read().decode()
+    missing = [a for a in ANIMATIONS[1:] if f".fx-{a} " not in overlay]
+    assert not missing, f"animations without overlay CSS: {missing}"
+
+    # API refuses requests without the app's header (other websites) or with a foreign Host (DNS rebinding)
+    assert status("GET", "/api/emotes", deck=False) == 403
+    assert status("GET", "/api/emotes", headers={"Host": "evil.example:8799"}) == 403
+
+    # Add emote by upload, attach sound, set animation + volume
+    assert call("POST", "/api/emotes?filename=kappa.png", png_bytes("red"))["filename"] == "kappa.png"
+    assert status("POST", "/api/emotes?filename=notes.txt", body=b"hello") == 400
+    assert call("PUT", "/api/emotes/kappa.png/sound?sound=boom.mp3", b"ID3fake")["sound"] == "kappa.png.mp3"
+    patch = lambda body: call("PATCH", "/api/emotes/kappa.png", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    assert patch({"animation": "shake", "volume": 40}) == {"animation": "shake", "volume": 40}
+    assert patch({"volume": 55})["animation"] == "shake"  # partial update keeps the rest
+    assert status("PATCH", "/api/emotes/kappa.png", body=b'{"volume": 101}', headers={"Content-Type": "application/json"}) == 400
+    assert status("PATCH", "/api/emotes/kappa.png", body=b'{"animation": "explode"}', headers={"Content-Type": "application/json"}) == 400
+    [e] = call("GET", "/api/emotes")
+    assert (e["sound"], e["animation"], e["volume"]) == ("kappa.png.mp3", "shake", 55), e
+
+    # Overlay listener receives spawns with sound, animation and volume
+    events, hello, ready = [], [], threading.Event()
+
+    def listen():
+        with urllib.request.urlopen(base + "/events", timeout=5) as r:
+            ready.set()
+            named = False
+            for line in r:
+                if line.startswith(b"event:"):
+                    named = True
+                elif line.startswith(b"data:") and named:
+                    hello.append(line[5:].strip().decode())
+                    named = False
+                elif line.startswith(b"data:"):
+                    events.append(json.loads(line[5:]))
+                    if len(events) == 2:
+                        return
+
+    t = threading.Thread(target=listen, daemon=True)
+    t.start()
+    ready.wait(5)
+    time.sleep(0.3)  # let the server register the queue
+    assert call("GET", "/api/info")["overlays"] == 1
+    assert call("GET", "/spawn/kappa.png", deck=False)["overlays"] == 1
+    assert call("GET", "/spawn/random", deck=False)["filename"] == "kappa.png"
+    t.join(5)
+    assert hello == [server._boot_id], hello  # overlay reload signal
+    assert [(e["filename"], e["sound"], e["animation"], e["volume"]) for e in events] == [("kappa.png", "kappa.png.mp3", "shake", 55)] * 2, events
+    assert all(isinstance(e["sound_version"], int) for e in events), events
+
+    # Library files must be revalidated (a replaced sound keeps its filename)
+    assert urllib.request.urlopen(base + "/static/kappa.png").headers["Cache-Control"] == "no-cache"
+
+    for bad in ("/spawn/nope.png", "/spawn/..%2Fsecret.png", "/spawn/kappa.png.mp3"):
+        assert status("GET", bad, deck=False) == 404, bad
+
+    # Remove sound, then emote (cleans settings)
+    call("DELETE", "/api/emotes/kappa.png/sound")
+    assert not (lib / "kappa.png.mp3").exists()
+    call("DELETE", "/api/emotes/kappa.png")
+    assert call("GET", "/api/emotes") == [] and "kappa.png" not in server.library._meta()
+
+    server.stop()
+    assert not server._thread.is_alive(), "server did not shut down with an overlay connected"
+    print("OK")
+
+
+if __name__ == "__main__":
+    main()

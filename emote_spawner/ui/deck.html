@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emote Deck</title>
+<style>
+/* Bricolage Grotesque when installed, else the OS UI font; the app works offline so no web fonts */
+:root {
+  --chassis: #1E1B2E; --panel: #262238; --well: #15131F; --raised: #302B47; --raised-hi: #3A3456;
+  --text: #ECE8F7; --text-2: #CFC9E2; --muted: #A39DBB; --led: #FFB23E; --led-ink: #2A1A00; --danger: #F0A0A0;
+  font-family: "Bricolage Grotesque", -apple-system, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* component display rules would otherwise override it */
+html, body { margin: 0; min-height: 100%; background: var(--chassis); color: var(--text); }
+body { padding: 24px 28px 20px; display: flex; flex-direction: column; gap: 22px; user-select: none; }
+button { font: inherit; }
+:focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; }
+h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); }
+.led { width: 10px; height: 10px; border-radius: 50%; background: #5A5470; }
+.led.on { background: var(--led); box-shadow: 0 0 10px 2px rgba(255,178,62,.6); }
+.url { flex: 1 1 360px; display: flex; align-items: center; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.url label { font-size: 13px; color: var(--muted); }
+.url input { all: unset; width: 260px; padding: 9px 12px; border-radius: 10px; background: var(--well); color: #D9D4EA;
+  font-size: 13px; box-shadow: inset 0 1px 2px rgba(0,0,0,.5); user-select: text; }
+.ghost { all: unset; cursor: pointer; padding: 8px 12px; border-radius: 10px; font-size: 13px; color: #D9D4EA; background: var(--raised); }
+.ghost:hover { background: var(--raised-hi); }
+.ghost:focus-visible { outline: 2px solid var(--led); outline-offset: 2px; }
+
+main { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+#deck-area { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+#deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 22px 18px; padding-bottom: 8px; }
+#hint { margin: 0; font-size: 13px; color: var(--muted); min-height: 1.3em; }
+#hint.error { color: var(--danger); }
+body.dropping #deck { outline: 2px dashed var(--led); outline-offset: 10px; border-radius: 22px; }
+
+/* The pads: backlit keycaps that sink and glow when fired */
+.pad { all: unset; box-sizing: border-box; width: 100%; aspect-ratio: 1 / 1; border-radius: 22px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px;
+  background: linear-gradient(180deg, #433D63 0%, #2F2B47 100%); color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 -3px 0 rgba(0,0,0,.35), 0 6px 0 #14121F, 0 12px 20px rgba(0,0,0,.35);
+  transition: transform 70ms ease-out, box-shadow 70ms ease-out; }
+.pad:hover { background: linear-gradient(180deg, #4A4370 0%, #332E4F 100%); }
+.pad:focus-visible { outline: 3px solid var(--led); outline-offset: 4px; }
+.pad.selected { box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 -3px 0 rgba(0,0,0,.35), 0 6px 0 #14121F,
+  0 0 0 2px rgba(255,178,62,.75), 0 12px 20px rgba(0,0,0,.35); }
+.pad.pressed { transform: translateY(5px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 1px 0 #14121F, 0 0 0 2px var(--led), 0 0 36px 6px rgba(255,178,62,.55); }
+.pad img { width: 64px; height: 64px; object-fit: contain; pointer-events: none; }
+.pad .name { font-size: 15px; font-weight: 650; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pad .meta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #B7B1CC; }
+.pad-add { background: transparent; border: 2px dashed #4F4870; box-shadow: none; color: #B7B1CC; }
+.pad-add:hover { background: rgba(255,255,255,.04); border-color: #7A72A0; }
+
+aside { flex: 1 1 340px; max-width: 400px; background: var(--panel); border-radius: 28px; padding: 22px;
+  display: flex; flex-direction: column; gap: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+.stage { height: 170px; border-radius: 18px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  background: repeating-conic-gradient(#2C2842 0% 25%, #312C4A 0% 50%) 0 0 / 22px 22px; }
+.stage img { width: 120px; height: 120px; object-fit: contain; }
+.title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+h2 { margin: 0; font-size: 24px; font-weight: 750; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title span { font-size: 13px; color: var(--muted); white-space: nowrap; }
+h3 { margin: 0; font-size: 15px; font-weight: 650; color: var(--text-2); }
+section { display: flex; flex-direction: column; gap: 10px; }
+.sound { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px; background: var(--chassis); }
+.sound .file { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sound .file span:first-child { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sound .file span:last-child { font-size: 12px; color: var(--muted); }
+.add-sound { text-align: center; padding: 12px; border: 2px dashed #4F4870; background: transparent; }
+.vol { display: flex; align-items: center; gap: 14px; }
+.vol label { font-size: 13px; color: var(--muted); width: 52px; }
+.vol output { font-size: 14px; font-weight: 650; width: 44px; text-align: right; }
+
+/* Volume fader: a hardware slider cap on a recessed track */
+.fader { -webkit-appearance: none; appearance: none; flex: 1; height: 34px; background: transparent; margin: 0; }
+.fader::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: var(--well); box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+.fader::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 34px; margin-top: -13px; border-radius: 6px; cursor: grab;
+  background: linear-gradient(180deg, #F4F1FB 0%, #B9B3CF 48%, #8F88AA 52%, #D2CDE3 100%); box-shadow: 0 3px 8px rgba(0,0,0,.5); }
+.fader::-moz-range-track { height: 8px; border-radius: 4px; background: var(--well); }
+.fader::-moz-range-thumb { width: 22px; height: 34px; border: 0; border-radius: 6px;
+  background: linear-gradient(180deg, #F4F1FB 0%, #B9B3CF 48%, #8F88AA 52%, #D2CDE3 100%); }
+.fader:disabled { opacity: .4; }
+
+#chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { all: unset; cursor: pointer; padding: 7px 12px; border-radius: 999px; font-size: 13px; background: var(--raised); color: #D9D4EA; }
+.chip:hover { background: var(--raised-hi); }
+.chip:focus-visible { outline: 2px solid var(--led); outline-offset: 2px; }
+.chip[aria-pressed="true"] { background: var(--led); color: var(--led-ink); font-weight: 650; }
+
+.fire { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; height: 54px; border-radius: 14px; text-align: center;
+  font-size: 17px; font-weight: 700; color: var(--led-ink); background: linear-gradient(180deg, #FFC566, #FFA924);
+  box-shadow: 0 4px 0 #B86F00, 0 10px 24px rgba(255,170,40,.25); transition: transform 70ms, box-shadow 70ms; }
+.fire:active { transform: translateY(3px); box-shadow: 0 1px 0 #B86F00; }
+.fire:focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
+.remove { align-self: center; background: transparent; color: var(--danger); }
+
+/* Animation previews: looping versions of the overlay effects */
+.fx-shake { animation: shake .09s linear infinite; }
+.fx-bounce { animation: bounce .5s ease-in-out infinite; }
+.fx-spin { animation: spin 1s linear infinite; }
+.fx-spin-slow { animation: spin 4s linear infinite; }
+.fx-pulse { animation: pulse .6s ease-in-out infinite; }
+.fx-heartbeat { animation: heartbeat 1s ease-in-out infinite; }
+.fx-wobble { animation: wobble .8s ease-in-out infinite; }
+.fx-jelly { animation: jelly .9s ease-in-out infinite; }
+.fx-swing { animation: swing 1s ease-in-out infinite; transform-origin: top center; }
+.fx-flash { animation: flash .4s steps(1) infinite; }
+.fx-grow { animation: grow 1.6s ease-in infinite alternate; }
+.fx-shrink { animation: shrink 1.6s ease-in infinite alternate; }
+.fx-zoom { animation: zoom 1.6s cubic-bezier(.5,0,1,.5) infinite alternate; }
+.fx-float { animation: float 1.6s ease-in-out infinite alternate; }
+@keyframes shake { 0%,100% { transform: translate(0,0) rotate(0); } 25% { transform: translate(-8px,4px) rotate(-6deg); }
+  50% { transform: translate(7px,-5px) rotate(5deg); } 75% { transform: translate(-5px,-4px) rotate(-4deg); } }
+@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-30px); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@keyframes heartbeat { 0%,40%,100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(1.1); } }
+@keyframes wobble { 0%,100% { transform: rotate(0) skewX(0); } 25% { transform: rotate(-12deg) skewX(8deg); } 75% { transform: rotate(12deg) skewX(-8deg); } }
+@keyframes jelly { 0%,100% { transform: scale(1,1); } 30% { transform: scale(1.25,.75); } 50% { transform: scale(.8,1.2); } 70% { transform: scale(1.1,.9); } }
+@keyframes swing { 0%,100% { transform: rotate(18deg); } 50% { transform: rotate(-18deg); } }
+@keyframes flash { 50% { filter: brightness(2.2) saturate(0); } }
+@keyframes grow { from { transform: scale(.8); } to { transform: scale(1.5); } }
+@keyframes shrink { from { transform: scale(1.1); } to { transform: scale(.4); } }
+@keyframes zoom { from { transform: scale(.6); } to { transform: scale(1.9); } }
+@keyframes float { from { transform: translateY(20px); } to { transform: translateY(-40px); } }
+@media (prefers-reduced-motion: reduce) { [class*="fx-"] { animation: none; } .pad, .fire { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Emote Deck</h1>
+  <div class="status"><span id="led" class="led" aria-hidden="true"></span><span id="status-text">Checking overlay…</span></div>
+  <div class="url">
+    <label for="overlay-url">Browser source</label>
+    <input id="overlay-url" readonly>
+    <button class="ghost" id="copy">Copy</button>
+    <button class="ghost" id="random">Fire random</button>
+  </div>
+</header>
+
+<main>
+  <section id="deck-area" aria-label="Emote pads">
+    <div id="deck"></div>
+    <p id="hint" role="status">Click a pad to fire it on stream. Its settings open on the right.</p>
+  </section>
+
+  <aside id="inspector" aria-label="Pad settings" hidden>
+    <div class="stage"><img id="preview" alt=""></div>
+    <div class="title"><h2 id="sel-name"></h2><span id="sel-file"></span></div>
+    <section aria-labelledby="snd-h">
+      <h3 id="snd-h">Sound</h3>
+      <div class="sound" id="sound-row">
+        <button class="ghost" id="play" aria-label="Play sound" style="padding: 8px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+        </button>
+        <div class="file"><span id="sound-name"></span><span id="sound-len"></span></div>
+        <button class="ghost" id="replace-sound">Replace</button>
+        <button class="ghost" id="remove-sound">Remove</button>
+      </div>
+      <button class="ghost add-sound" id="add-sound">Add a sound</button>
+      <div class="vol">
+        <label for="vol">Volume</label>
+        <input id="vol" class="fader" type="range" min="0" max="100" step="1">
+        <output id="vol-out" for="vol"></output>
+      </div>
+    </section>
+    <section aria-labelledby="anim-h">
+      <h3 id="anim-h">Animation</h3>
+      <div id="chips"></div>
+    </section>
+    <button class="fire" id="fire">Fire on stream</button>
+    <button class="ghost remove" id="remove"></button>
+  </aside>
+</main>
+
+<input type="file" id="pick-images" accept=".png,.gif,.jpg,.jpeg,.webp" multiple hidden>
+<input type="file" id="pick-sound" accept=".mp3,.wav,.ogg" hidden>
+
+<template id="sound-icon">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+       stroke-linejoin="round" role="img" aria-label="Has sound"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+</template>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const enc = encodeURIComponent;
+const stem = (f) => f.replace(/\.[^.]+$/, "");
+const pretty = (a) => (a === "none" ? "None" : a[0].toUpperCase() + a.slice(1).replace("-", " "));
+let emotes = [], animations = [], selected = null;
+
+async function api(method, path, body, contentType) {
+  const headers = { "X-Emote-Deck": "1" };
+  if (contentType) headers["Content-Type"] = contentType;
+  const res = await fetch("/api" + path, { method, headers, body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+  return data;
+}
+
+function hint(text, isError = false) {
+  $("hint").textContent = text;
+  $("hint").classList.toggle("error", isError);
+}
+
+async function load() {
+  emotes = await api("GET", "/emotes");
+  if (selected && !emotes.some((e) => e.filename === selected)) selected = null;
+  if (!selected && emotes.length) selected = emotes[0].filename;
+  renderDeck();
+  renderInspector();
+}
+
+function renderDeck() {
+  const deck = $("deck");
+  deck.replaceChildren();
+  for (const e of emotes) {
+    const pad = document.createElement("button");
+    pad.className = "pad" + (e.filename === selected ? " selected" : "");
+    pad.setAttribute("aria-label", `Fire ${stem(e.filename)}`);
+    const img = document.createElement("img");
+    img.src = "/static/" + enc(e.filename);
+    img.alt = "";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = stem(e.filename);
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    if (e.sound) meta.append($("sound-icon").content.cloneNode(true));
+    meta.append(e.animation === "none" ? "no animation" : pretty(e.animation));
+    pad.append(img, name, meta);
+    pad.onclick = () => fire(e.filename, pad);
+    deck.append(pad);
+  }
+  const add = document.createElement("button");
+  add.className = "pad pad-add";
+  add.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="name">Add emotes</span>';
+  add.onclick = () => $("pick-images").click();
+  deck.append(add);
+}
+
+function renderInspector() {
+  const e = emotes.find((x) => x.filename === selected);
+  $("inspector").hidden = !e;
+  if (!e) return;
+  $("preview").src = "/static/" + enc(e.filename);
+  $("preview").className = "fx-" + e.animation;
+  $("sel-name").textContent = stem(e.filename);
+  $("sel-file").textContent = e.filename;
+  $("sound-row").hidden = !e.sound;
+  $("add-sound").hidden = !!e.sound;
+  if (e.sound) {
+    $("sound-name").textContent = e.sound.split(".").pop().toUpperCase() + " sound";  // stored as <emote>.<ext>, so no original name
+    $("sound-len").textContent = "";
+    const a = new Audio("/static/" + enc(e.sound));
+    a.onloadedmetadata = () => {
+      const s = a.duration;
+      $("sound-len").textContent = s > 3 ? `${s.toFixed(1)} s, cut at 3 s` : `${s.toFixed(1)} s`;
+    };
+  }
+  $("vol").value = e.volume;
+  $("vol").disabled = !e.sound;
+  $("vol-out").textContent = e.volume + "%";
+  $("chips").replaceChildren(...animations.map((a) => {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.textContent = pretty(a);
+    chip.setAttribute("aria-pressed", String(a === e.animation));
+    chip.onclick = () => update({ animation: a });
+    return chip;
+  }));
+  $("remove").textContent = `Remove ${stem(e.filename)} from deck`;
+}
+
+async function fire(filename, pad) {
+  selected = filename;
+  document.querySelectorAll(".pad.selected").forEach((p) => p.classList.remove("selected"));
+  if (pad) {
+    pad.classList.add("selected", "pressed");
+    setTimeout(() => pad.classList.remove("pressed"), 200);
+  }
+  renderInspector();
+  try {
+    const res = await fetch("/spawn/" + enc(filename)).then((r) => r.json());
+    hint(res.overlays ? `Fired ${stem(filename)}.` : `Fired ${stem(filename)}, but no overlay is open. Add the browser source in Streamlabs.`, !res.overlays);
+  } catch (err) {
+    hint(`Could not fire ${stem(filename)}: ${err.message}`, true);
+  }
+}
+
+async function update(changes) {
+  try {
+    Object.assign(emotes.find((x) => x.filename === selected), await api("PATCH", "/emotes/" + enc(selected), JSON.stringify(changes), "application/json"));
+    renderDeck();
+    renderInspector();
+  } catch (err) { hint(err.message, true); }
+}
+
+async function addImages(files) {
+  const errors = [];
+  for (const f of files) {
+    try { selected = (await api("POST", "/emotes?filename=" + enc(f.name), f)).filename; }
+    catch (err) { errors.push(`${f.name}: ${err.message}`); }
+  }
+  await load();
+  hint(errors.length ? `Skipped ${errors.join("; ")}` : `Added ${files.length} emote${files.length === 1 ? "" : "s"}.`, errors.length > 0);
+}
+
+$("pick-images").onchange = (ev) => { addImages([...ev.target.files]); ev.target.value = ""; };
+$("pick-sound").onchange = async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = "";
+  if (!f) return;
+  try {
+    await api("PUT", `/emotes/${enc(selected)}/sound?sound=${enc(f.name)}`, f);
+    await load();
+    hint(`Sound set for ${stem(selected)}.`);
+  } catch (err) { hint(err.message, true); }
+};
+$("add-sound").onclick = $("replace-sound").onclick = () => $("pick-sound").click();
+$("remove-sound").onclick = async () => { await api("DELETE", `/emotes/${enc(selected)}/sound`); await load(); };
+$("play").onclick = () => {
+  const e = emotes.find((x) => x.filename === selected);
+  const a = new Audio("/static/" + enc(e.sound));
+  a.volume = e.volume / 100;
+  a.play();
+  setTimeout(() => a.pause(), 3000);  // same 3 s cut as the overlay
+};
+$("vol").oninput = () => ($("vol-out").textContent = $("vol").value + "%");
+$("vol").onchange = () => update({ volume: Number($("vol").value) });
+$("fire").onclick = () => fire(selected, [...document.querySelectorAll(".pad")].find((p) => p.classList.contains("selected")));
+$("remove").onclick = async () => {
+  if (!confirm(`Remove ${stem(selected)} and its sound from the deck?`)) return;
+  await api("DELETE", "/emotes/" + enc(selected));
+  selected = null;
+  await load();
+};
+$("random").onclick = () => {
+  if (!emotes.length) return hint("Add emotes first.", true);
+  const e = emotes[Math.floor(Math.random() * emotes.length)];
+  fire(e.filename, $("deck").children[emotes.indexOf(e)]);
+};
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("overlay-url").value); }
+  catch { $("overlay-url").select(); document.execCommand("copy"); }  // older WebKit without async clipboard
+  $("copy").textContent = "Copied";
+  setTimeout(() => ($("copy").textContent = "Copy"), 1500);
+};
+
+// Drop image files anywhere on the window to add them
+addEventListener("dragover", (ev) => { ev.preventDefault(); document.body.classList.add("dropping"); });
+addEventListener("dragleave", (ev) => { if (!ev.relatedTarget) document.body.classList.remove("dropping"); });
+addEventListener("drop", (ev) => {
+  ev.preventDefault();
+  document.body.classList.remove("dropping");
+  if (ev.dataTransfer.files.length) addImages([...ev.dataTransfer.files]);
+});
+
+async function pollOverlay() {
+  try {
+    const info = await api("GET", "/info");
+    animations = info.animations;
+    $("overlay-url").value = info.overlay_url;
+    $("led").classList.toggle("on", info.overlays > 0);
+    $("status-text").textContent = info.overlays ? "Overlay connected" : "No overlay open";
+  } catch { $("status-text").textContent = "Server not reachable"; }
+}
+
+pollOverlay().then(load).catch((err) => hint(err.message, true));
+setInterval(pollOverlay, 3000);
+</script>
+</body>
+</html>

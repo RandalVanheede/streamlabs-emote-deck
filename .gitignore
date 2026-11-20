@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+emotes/
+build/
+dist/
+*.spec
+.omc/
+.DS_Store
