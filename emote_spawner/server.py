@@ -308,6 +308,15 @@ class HTTPServerManager:
             self.library.update_settings(emote(filename).name, animation=animation, volume=volume, command=command)
             return self.library.settings(filename)
 
+        @api.post("/emotes/{filename}/rename")
+        async def rename_emote(filename: str, name: str = Body(..., embed=True)):
+            return {"filename": self.library.rename_image(emote(filename).name, name)}
+
+        @api.put("/order")
+        async def set_order(order: list[str] = Body(...)):
+            self.library.update_app_settings({"order": order})
+            return {"ok": True}
+
         @api.delete("/emotes/{filename}")
         async def delete_emote(filename: str):
             self.library.delete_image(emote(filename).name)

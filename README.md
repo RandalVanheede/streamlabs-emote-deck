@@ -13,7 +13,7 @@ python -m emote_spawner
    (`./emotes` from source; see below for the packaged app).
 2. In Streamlabs add a **Browser Source** with the URL shown at the top of the app: `http://127.0.0.1:8765/overlay`.
    The light next to the title turns amber once the overlay is connected.
-3. Click a pad to fire it. Its settings open on the right: sound (mp3/wav/ogg), volume, and animation
+3. Click a pad to fire it; drag pads to reorder them; click the name in the panel to rename. Its settings open on the right: sound (mp3/wav/ogg), volume, and animation
    (shake, bounce, spin, pulse, heartbeat, wobble, jelly, swing, flash, grow, shrink, zoom, float, …).
 4. Chat bots / Streamer.bot / a hardware deck can fire too, with the links from **Settings → Spawn links for bots**:
    `GET http://127.0.0.1:8765/spawn/random?token=…` or `/spawn/{filename}?token=…`. The secret token stops other

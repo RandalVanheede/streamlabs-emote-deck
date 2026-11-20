@@ -64,6 +64,12 @@ aside { flex: 1 1 340px; max-width: 400px; background: var(--panel); border-radi
 .title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
 h2 { margin: 0; font-size: 24px; font-weight: 750; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title span { font-size: 13px; color: var(--muted); white-space: nowrap; }
+#sel-name { all: unset; flex: 1; min-width: 0; font-size: 24px; font-weight: 750; letter-spacing: -0.01em; padding: 2px 6px;
+  margin-left: -6px; border-radius: 8px; user-select: text; }
+#sel-name:hover { background: var(--raised); }
+#sel-name:focus-visible { background: var(--well); outline: 2px solid var(--led); }
+.pad.drag-over { outline: 3px dashed var(--led); outline-offset: 4px; }
+.pad.dragging { opacity: .4; }
 h3 { margin: 0; font-size: 15px; font-weight: 650; color: var(--text-2); }
 section { display: flex; flex-direction: column; gap: 10px; }
 .sound { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px; background: var(--chassis); }
@@ -166,7 +172,7 @@ select.field { cursor: pointer; }
 
   <aside id="inspector" aria-label="Pad settings" hidden>
     <div class="stage"><img id="preview" alt=""></div>
-    <div class="title"><h2 id="sel-name"></h2><span id="sel-file"></span></div>
+    <div class="title"><input id="sel-name" aria-label="Emote name (rename)" maxlength="40" spellcheck="false"><span id="sel-file"></span></div>
     <section aria-labelledby="snd-h">
       <h3 id="snd-h">Sound</h3>
       <div class="sound" id="sound-row">
@@ -326,6 +332,20 @@ function renderDeck() {
     meta.append(e.animation === "none" ? "no animation" : pretty(e.animation));
     pad.append(img, name, meta);
     pad.onclick = () => fire(e.filename, pad);
+    // Drag a pad onto another to move it there
+    pad.draggable = true;
+    pad.ondragstart = (ev) => { ev.dataTransfer.setData("text/x-emote", e.filename); pad.classList.add("dragging"); };
+    pad.ondragend = () => pad.classList.remove("dragging");
+    pad.ondragover = (ev) => { if (ev.dataTransfer.types.includes("text/x-emote")) { ev.preventDefault(); pad.classList.add("drag-over"); } };
+    pad.ondragleave = () => pad.classList.remove("drag-over");
+    pad.ondrop = (ev) => {
+      const dragged = ev.dataTransfer.getData("text/x-emote");
+      if (!dragged) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      pad.classList.remove("drag-over");
+      moveEmote(dragged, e.filename);
+    };
     deck.append(pad);
   }
   const add = document.createElement("button");
@@ -341,7 +361,7 @@ function renderInspector() {
   if (!e) return;
   $("preview").src = "/static/" + enc(e.filename);
   $("preview").className = "fx-" + e.animation;
-  $("sel-name").textContent = stem(e.filename);
+  $("sel-name").value = stem(e.filename);
   $("sel-file").textContent = e.filename;
   $("sound-row").hidden = !e.sound;
   $("add-sound").hidden = !!e.sound;
@@ -446,8 +466,29 @@ async function copyText(input, button) {
 }
 $("copy").onclick = () => copyText($("overlay-url"), $("copy"));
 
+async function moveEmote(dragged, target) {
+  if (dragged === target) return;
+  const order = emotes.map((x) => x.filename).filter((f) => f !== dragged);
+  order.splice(order.indexOf(target) + (emotes.findIndex((x) => x.filename === dragged) < emotes.findIndex((x) => x.filename === target) ? 1 : 0), 0, dragged);
+  try { await api("PUT", "/order", JSON.stringify(order), "application/json"); } catch (err) { hint(err.message, true); }
+  await load();
+}
+
+$("sel-name").onkeydown = (ev) => { if (ev.key === "Enter") $("sel-name").blur(); if (ev.key === "Escape") { renderInspector(); $("sel-name").blur(); } };
+$("sel-name").onchange = async () => {
+  try {
+    selected = (await api("POST", `/emotes/${enc(selected)}/rename`, JSON.stringify({ name: $("sel-name").value }), "application/json")).filename;
+    hint(`Renamed to ${stem(selected)}.`);
+  } catch (err) { hint(err.message, true); }
+  await load();
+};
+
 // Drop image files anywhere on the window to add them
-addEventListener("dragover", (ev) => { ev.preventDefault(); document.body.classList.add("dropping"); });
+addEventListener("dragover", (ev) => {
+  if (!ev.dataTransfer.types.includes("Files")) return;  // a pad being dragged, not files
+  ev.preventDefault();
+  document.body.classList.add("dropping");
+});
 addEventListener("dragleave", (ev) => { if (!ev.relatedTarget) document.body.classList.remove("dropping"); });
 addEventListener("drop", (ev) => {
   ev.preventDefault();

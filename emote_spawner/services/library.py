@@ -29,6 +29,7 @@ SETTINGS = {
     "cooldown_emote": (5, _number(0, 600), "Cooldown must be 0 to 600 seconds"),
     "channel": ("", lambda v: isinstance(v, str) and (v == "" or re.fullmatch(r"\w{3,25}", v) is not None),
                 "Twitch channel names are 3 to 25 letters, digits or underscores"),
+    "order": ([], lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v), "Order must be a list of file names"),
 }
 COMMAND_RE = re.compile(r"[a-z0-9_]{1,25}")
 
@@ -84,9 +85,10 @@ class Library:
         return name
 
     def list_images(self) -> list[dict]:
-        """Return sorted list of image info dicts."""
+        """Image info dicts in deck order (settings "order"; emotes not in it go last, by name)."""
+        order = {name: i for i, name in enumerate(self.app_settings()["order"])}
         images = []
-        for p in sorted(self.library_dir.iterdir()):
+        for p in sorted(self.library_dir.iterdir(), key=lambda p: (order.get(p.name, len(order)), p.name)):
             if p.suffix.lower() in ALLOWED_EXTENSIONS:
                 images.append({
                     "filename": p.name,
@@ -108,6 +110,32 @@ class Library:
             self._save_meta(meta)
         target.unlink()
         return True
+
+    def rename_image(self, filename: str, new_stem: str) -> str:
+        """Rename an emote (keeps its extension); its sound, settings and deck position move along."""
+        target = self.get_path(filename)
+        if target is None:
+            raise LibraryError(f"Emote not found: {filename}")
+        new_stem = new_stem.strip()
+        if not re.fullmatch(r"[\w][\w\- ]{0,39}", new_stem):
+            raise LibraryError("Names are 1 to 40 letters, digits, spaces, - or _")
+        new = new_stem + target.suffix
+        if new == target.name:
+            return new
+        if any(p.name.casefold() == new.casefold() and p != target for p in self.library_dir.iterdir()):
+            raise LibraryError(f"There already is an emote called {new_stem}")
+        sound = self.sound_for(target.name)
+        target.rename(self.library_dir / new)
+        if sound:
+            (self.library_dir / sound).rename(self.library_dir / (new + sound[len(target.name):]))
+        meta = self._meta()
+        if target.name in meta:
+            meta[new] = meta.pop(target.name)
+            self._save_meta(meta)
+        order = self.app_settings()["order"]
+        if target.name in order:
+            self.update_app_settings({"order": [new if n == target.name else n for n in order]})
+        return new
 
     # Per-emote settings live in deck.json: {"kappa.png": {"animation": "shake", "volume": 80}}
     def _meta(self) -> dict:

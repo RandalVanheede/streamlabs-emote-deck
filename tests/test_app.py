@@ -177,6 +177,22 @@ def main():
     assert new != token and status("GET", f"/spawn/kappa.png?token={token}", deck=False) == 403
     assert status("PATCH", "/api/settings", body=b'{"token": "mine"}', headers={"Content-Type": "application/json"}) == 400
 
+    # Deck order and rename (sound, settings and position move along)
+    assert call("POST", "/api/emotes?filename=zebra.png", png_bytes("blue"))["filename"] == "zebra.png"
+    assert [e["filename"] for e in call("GET", "/api/emotes")] == ["kappa.png", "zebra.png"]
+    call("PUT", "/api/order", json.dumps(["zebra.png", "kappa.png"]).encode(), {"Content-Type": "application/json"})
+    assert [e["filename"] for e in call("GET", "/api/emotes")] == ["zebra.png", "kappa.png"]
+    rename = lambda old, name: call("POST", f"/api/emotes/{old}/rename", json.dumps({"name": name}).encode(), {"Content-Type": "application/json"})
+    assert rename("kappa.png", "Kappa Pride")["filename"] == "Kappa Pride.png"
+    emotes = call("GET", "/api/emotes")
+    assert [e["filename"] for e in emotes] == ["zebra.png", "Kappa Pride.png"], emotes
+    assert (emotes[1]["sound"], emotes[1]["animation"]) == ("Kappa Pride.png.mp3", "shake"), emotes[1]
+    for bad in ("ZEBRA", "../evil", ""):
+        assert status("POST", "/api/emotes/Kappa%20Pride.png/rename", body=json.dumps({"name": bad}).encode(),
+                      headers={"Content-Type": "application/json"}) == 400, bad
+    rename("Kappa%20Pride.png", "kappa")
+    call("DELETE", "/api/emotes/zebra.png")
+
     # Remove sound, then emote (cleans settings)
     call("DELETE", "/api/emotes/kappa.png/sound")
     assert not (lib / "kappa.png.mp3").exists()
